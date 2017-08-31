@@ -13,7 +13,7 @@ def cost_derivative(c,v):
 def sigmoid_derivative(z):
     return sigmoid(z)*(1-sigmoid(z))
 def equal(x,y):
-    return abs(x-y) < DIF
+    return (abs(x-y) < DIF).all()
 
 
 class Red(object):
@@ -27,26 +27,28 @@ class Red(object):
 
     def feedforward(self, inp):
         for w,b in zip(self.weights, self.bias):
+
             inp = sigmoid(np.dot(w,inp) + b)
         return inp
 
     def printf(self):
-        print "Weights: {0}".format(self.weights)
-        print "Bias: {0}".format(self.bias)
+        print ("\n\nWeights: {0}".format(self.weights))
+        print ("\nBias: {0}".format(self.bias))
 
 
     #Datos, size de cada entrenamiento por ciclo, numero ciclos,
     #  eta -> valor de actualizacion
     def train(self, data, mini_batch_size, epoch, eta, test = False):
         n = len(data)
-        for x in xrange(epoch):
+        percentaje = "Null"
+        for x in range(epoch):
             random.shuffle(data)
-            mini_data = [data[k:k+mini_batch_size] for k in xrange(0,n,mini_batch_size)]
+            mini_data = [data[k:k+mini_batch_size] for k in range(0,n,mini_batch_size)]
             for mini_batch in mini_data:
                 self.update(mini_batch,eta)
             if test == True:
-                self.evaluate(data)
-            print "Numero finalizado {0}".format(x)
+                percentaje = self.evaluate(data) / n
+            print ("Numero finalizado {0}, porcentaje: {1}".format(x, percentaje))
 
 
     def update(self, data, eta):
@@ -73,7 +75,7 @@ class Red(object):
         # Fordward
 
         for w,b in zip(self.weights,self.bias):
-            
+
             activation = np.dot(w,activation)+b
             outs.append(activation)
             activation = sigmoid(activation)
@@ -86,7 +88,7 @@ class Red(object):
         # Vector columna por vector fila, crea matriz con errores
         err_w[-1] = np.dot(delta, activs[-2].transpose())
 
-        for l in xrange(2,self.layers):
+        for l in range(2,self.layers):
             delta = np.dot(self.weights[-l+1].transpose(),delta)*sigmoid_derivative(outs[-l])
             err_b[-l] = delta
             err_w[-l] = np.dot(delta, activs[-l-1].transpose())
@@ -99,22 +101,23 @@ class Red(object):
         return sum(int(equal(x,y)) for x,y in result)
 
 
+# XOR
+#data = [(np.array([[1],[1]]),0),(np.array([[1],[0]]),1),(np.array([[0],[1]]),1),(np.array([[0],[0]]),0)]
+# Binary
+n = 16
+data = [(x,(x+1)%n) for x in range(n)]
+data = [(list("{0:04b}".format(x)),list("{0:04b}".format(y))) for x,y in data]
+data = [([int(x) for x in xn],[int(y) for y in yn]) for xn,yn in data ]
+data = [(np.array(x).reshape(len(x),1),np.array(y).reshape(len(x),1))for x,y in data]
 
 
-red = Red([2,4,1])
-red.printf()
+red = Red([4,4,4])
+#red.printf()
 
-data = [(np.array([[1],[1]]),0),(np.array([[1],[0]]),1),(np.array([[0],[1]]),1),(np.array([[0],[0]]),0)]
-#print red.evaluate(data)
-print red.feedforward(data[0][0])
+red.train(data, 2, 5000, 1, test = True)
 
-red.train(data, 1, 10000, 0.1, test = True)
 
-print red.feedforward(data[0][0])
-print red.feedforward(data[1][0])
-print red.feedforward(data[2][0])
-print red.feedforward(data[3][0])
-
-print red.evaluate(data)
-
-red.printf()
+print (red.evaluate(data))
+#print data[15]
+#print "result {0}".format(red.feedforward(data[15][0]))
+#red.printf()
