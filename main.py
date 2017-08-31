@@ -31,19 +31,21 @@ class Red(object):
         return inp
 
     def printf(self):
-        print("Weights: ", self.weights)
-        print("Bias: ", self.bias)
+        print "Weights: {0}".format(self.weights)
+        print "Bias: {0}".format(self.bias)
 
 
     #Datos, size de cada entrenamiento por ciclo, numero ciclos,
     #  eta -> valor de actualizacion
-    def train(self, data, mini_batch_size, epoch, eta):
+    def train(self, data, mini_batch_size, epoch, eta, test = False):
         n = len(data)
         for x in xrange(epoch):
             random.shuffle(data)
             mini_data = [data[k:k+mini_batch_size] for k in xrange(0,n,mini_batch_size)]
             for mini_batch in mini_data:
                 self.update(mini_batch,eta)
+            if test == True:
+                self.evaluate(data)
             print "Numero finalizado {0}".format(x)
 
 
@@ -69,8 +71,10 @@ class Red(object):
         activs = [inp] # Value with sigmoid
 
         # Fordward
+
         for w,b in zip(self.weights,self.bias):
-            activation = np.dot(w,inp)+b
+            
+            activation = np.dot(w,activation)+b
             outs.append(activation)
             activation = sigmoid(activation)
             activs.append(activation)
@@ -97,14 +101,14 @@ class Red(object):
 
 
 
-red = Red([2,2,1])
+red = Red([2,4,1])
 red.printf()
 
 data = [(np.array([[1],[1]]),0),(np.array([[1],[0]]),1),(np.array([[0],[1]]),1),(np.array([[0],[0]]),0)]
 #print red.evaluate(data)
 print red.feedforward(data[0][0])
 
-red.train(data, 1, 10000, 0.1)
+red.train(data, 1, 10000, 0.1, test = True)
 
 print red.feedforward(data[0][0])
 print red.feedforward(data[1][0])
