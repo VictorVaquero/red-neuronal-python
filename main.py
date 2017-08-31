@@ -119,5 +119,6 @@ red.train(data, 2, 5000, 1, test = True)
 
 print (red.evaluate(data))
 #print data[15]
+
 #print "result {0}".format(red.feedforward(data[15][0]))
 #red.printf()
