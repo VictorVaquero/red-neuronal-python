@@ -45,13 +45,14 @@ class Red(object):
         "rectified": rectified_linear_derivative
     }
 
-    def __init__(self, sizes, function):
+    def __init__(self, sizes, function, hidden):
         self.sizes = sizes
         self.layers = len(sizes)
         self.bias = [np.random.randn(i, 1) for i in sizes[1:]]
         self.weights = [np.random.randn(j, i)
                         for i, j in zip(sizes[:-1], sizes[1:])]
         self.function = function
+        self.hidden_function = hidden
 
     def feedforward(self, inp):
         for w, b in zip(self.weights, self.bias):
@@ -131,8 +132,10 @@ parser = argparse.ArgumentParser(description="Simple red neuronal")
 parser.add_argument("batch", type=int, help="Tamano de los mini lotes ")
 parser.add_argument("epoch", type=int, help="Numero de ciclos")
 parser.add_argument("eta", type=float, help="Valor aprendizaje")
+parser.add_argument("-hf", "--function", action="store", dest="hidden_function",
+                    help="funcion activacion", default="rectified")
 parser.add_argument("-f", "--function", action="store", dest="function",
-                    help="funcion a usar", default="rectified")
+                    help="funcion de salida", default="rectified")
 parser.add_argument("-t", "--test", action="store_true",
                     help="Calcular o no aciertos por ciclo")
 
@@ -167,7 +170,7 @@ size = [784, 30, 10]
 ##############################################################################
 
 
-red = Red(size, args.function)
+red = Red(size, args.function, args.hidden_function)
 # red.printf()
 red.train(training_data, args.batch, args.epoch, args.eta, test=args.test)
 
