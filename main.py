@@ -16,6 +16,17 @@ def sigmoid_derivative(z):
     return sigmoid(z) * (1 - sigmoid(z))
 
 
+def softmax(v):
+    shiftv = v - np.max(v)
+    exp = np.exp(shiftv)
+    return exp / sum(exp)
+
+
+def softmax_derivative(z):
+    x = z.shape[0]
+    return np.sum(z.reshape((x, 1)) * (np.identity(x) - np.tile(z, (x, 1))), 0)
+
+
 def rectified_linear(v):
     return np.vstack([x if x > 0 else 0 for x in v])
 
@@ -38,25 +49,30 @@ class Red(object):
 
     function_dictionary = {
         "sigmoid": sigmoid,
-        "rectified": rectified_linear
+        "rectified": rectified_linear,
+        "softmax": softmax
     }
     function_derivatives_dictionary = {
         "sigmoid": sigmoid_derivative,
-        "rectified": rectified_linear_derivative
+        "rectified": rectified_linear_derivative,
+        "softmax": softmax_derivative
     }
 
-    def __init__(self, sizes, function, hidden):
+    def __init__(self, sizes, outputF, hiddenF):
         self.sizes = sizes
         self.layers = len(sizes)
         self.bias = [np.random.randn(i, 1) for i in sizes[1:]]
         self.weights = [np.random.randn(j, i)
                         for i, j in zip(sizes[:-1], sizes[1:])]
-        self.function = function
-        self.hidden_function = hidden
+        self.hidden_function = hiddenF
+        self.output_function = outputF
 
     def feedforward(self, inp):
-        for w, b in zip(self.weights, self.bias):
-            inp = self.function_dictionary[self.function](np.dot(w, inp) + b)
+        for w, b in zip(self.weights[:-1], self.bias[:-1]):
+            inp = self.function_dictionary[self.hidden_function](
+                np.dot(w, inp) + b)
+        inp = self.function_dictionary[self.output_function](
+            np.dot(self.weights[-1], inp) + self.bias[-1])
         return inp
 
     def printf(self):
@@ -65,7 +81,7 @@ class Red(object):
     # Datos, size de cada entrenamiento por ciclo, numero ciclos,
     #  eta -> valor de actualizacion
 
-    def train(self, data, mini_batch_size, epoch, eta, test=False):
+    def train(self, data, mini_batch_size, epoch, eta, test=False, test_data=None):
         n = len(data)
         total = "Null"
         for x in range(epoch):
@@ -75,9 +91,9 @@ class Red(object):
             for mini_batch in mini_data:
                 self.update(mini_batch, eta)
             if test == True:
-                total = self.evaluate(data)
+                total = self.evaluate(test_data)
             print(
-                "Numero finalizado {0}, numero total: {1} de {2}".format(x, total, n))
+                "Numero finalizado {0}, numero total: {1} de {2}".format(x, total, len(test_data)))
 
     def update(self, data, eta):
         err_w = [np.zeros(w.shape) for w in self.weights]
@@ -97,30 +113,42 @@ class Red(object):
         activation = inp
         activs = [inp]  # Value with sigmoid
         # Fordward
-        for w, b in zip(self.weights, self.bias):
+        for w, b in zip(self.weights[:-1], self.bias[-1]):
             activation = np.dot(w, activation) + b
             outs.append(activation)
-            activation = self.function_dictionary[self.function](activation)
+            activation = self.function_dictionary[self.hidden_function](
+                activation)
             activs.append(activation)
+
+        activation = np.dot(self.weights[-1], activation) + \
+            self.bias[-1]
+        outs.append(activation)
+        activation = self.function_dictionary[self.output_function](
+            activation)
+        activs.append(activation)
         # Backward
         # Delta es el error por nodo
-        delta = cost_derivative(
-            activs[-1], out) * self.function_derivatives_dictionary[self.function](outs[-1])
+        # TODO Problema con derivadas, unas me dan vectores y otras jacobianos,
+        # Uso solo estas ultimas?
+        delta = cost_derivative(activs[-1], out) * \
+            self.function_derivatives_dictionary[self.output_function](
+                outs[-1])
         err_b[-1] = delta
         # Vector columna por vector fila, crea matriz con errores
         err_w[-1] = np.dot(delta, activs[-2].transpose())
         for l in range(2, self.layers):
             delta = np.dot(self.weights[-l + 1].transpose(),
-                           delta) * self.function_derivatives_dictionary[self.function](outs[-l])
+                           delta) * self.function_derivatives_dictionary[self.hidden_function](outs[-l])
             err_b[-l] = delta
             err_w[-l] = np.dot(delta, activs[-l - 1].transpose())
+
         return (err_w, err_b)
 
     def evaluate(self, test_data):
-        #result = [(self.feedforward(x), y) for (x, y) in test_data]
+        # result = [(self.feedforward(x), y) for (x, y) in test_data]
         # return sum(int(equal(x, y)) for x, y in result)
-        # Con np.argmax se hace una softmax
-        result = [(np.argmax(self.feedforward(x)), np.argmax(y))
+
+        result = [(np.argmax(self.feedforward(x)), y)
                   for (x, y) in test_data]
         return sum(int(i == j) for (i, j) in result)
 
@@ -132,9 +160,9 @@ parser = argparse.ArgumentParser(description="Simple red neuronal")
 parser.add_argument("batch", type=int, help="Tamano de los mini lotes ")
 parser.add_argument("epoch", type=int, help="Numero de ciclos")
 parser.add_argument("eta", type=float, help="Valor aprendizaje")
-parser.add_argument("-hf", "--function", action="store", dest="hidden_function",
-                    help="funcion activacion", default="rectified")
-parser.add_argument("-f", "--function", action="store", dest="function",
+parser.add_argument("-hf", "--hidden", action="store", dest="hidden_function",
+                    help="funcion oculta activacion", default="rectified")
+parser.add_argument("-of", "--output", action="store", dest="output_function",
                     help="funcion de salida", default="rectified")
 parser.add_argument("-t", "--test", action="store_true",
                     help="Calcular o no aciertos por ciclo")
@@ -170,12 +198,16 @@ size = [784, 30, 10]
 ##############################################################################
 
 
-red = Red(size, args.function, args.hidden_function)
+red = Red(size, args.output_function, args.hidden_function)
 # red.printf()
-red.train(training_data, args.batch, args.epoch, args.eta, test=args.test)
+try:
+    red.train(training_data, args.batch, args.epoch,
+              args.eta, test=args.test, test_data=test_data)
+except KeyboardInterrupt:
+    print("Acertastes {}, de {} ".format(
+        red.evaluate(validation_data), len(validation_data)))
+    # print data[15]
 
-print(red.evaluate(validation_data))
-# print data[15]
-
-print("result {0}".format(red.feedforward(test_data[1][0])))
-red.printf()
+    print("result {} de {}".format(red.feedforward(
+        validation_data[1][0]), validation_data[1][1]))
+    red.printf()
