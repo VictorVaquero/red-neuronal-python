@@ -1,6 +1,7 @@
 import numpy as np
 import random
 import argparse
+import sys
 
 import mnist_loader
 
@@ -19,12 +20,18 @@ def sigmoid_derivative(z):
 def softmax(v):
     shiftv = v - np.max(v)
     exp = np.exp(shiftv)
+    # if(np.isnan(v).any() or np.isnan(shiftv).any()):
+    #     print(v, "       ", shiftv)
+    #     sys.exit(0)
     return exp / sum(exp)
 
 
 def softmax_derivative(z):
     x = z.shape[0]
-    return np.sum(z.reshape((x, 1)) * (np.identity(x) - np.tile(z, (x, 1))), 0)
+    r = (np.identity(x) - np.tile(z, (1, x)))
+    print(r, "    ", z)
+    aux = np.sum(np.multiply(r, z.reshape((1, x))), 0)
+    return aux.reshape((x, 1))
 
 
 def rectified_linear(v):
@@ -35,8 +42,14 @@ def rectified_linear_derivative(z):
     return np.vstack([1 if x >= 0 else 0 for x in z])
 
 
-def cost_derivative(c, v):
-    return c - v
+def cost_derivative_quadratic(inp, out, real_out, func):
+    return (out - real_out) * func(inp)
+
+
+def cost_derivative_cross(inp, out, real_out, func):
+    """ Solo si la funcion de salida es la softmax
+    """
+    return (out - real_out)
 
 
 def equal(x, y):
@@ -57,15 +70,35 @@ class Red(object):
         "rectified": rectified_linear_derivative,
         "softmax": softmax_derivative
     }
+    cost_derivatives_dictionary = {
+        "quadratic": cost_derivative_quadratic,
+        "cross": cost_derivative_cross
+    }
 
-    def __init__(self, sizes, outputF, hiddenF):
+    def __init__(self, sizes, output_function, hidden_function, cost_function):
         self.sizes = sizes
         self.layers = len(sizes)
-        self.bias = [np.random.randn(i, 1) for i in sizes[1:]]
+
+        self.hidden_function = hidden_function
+        self.output_function = output_function
+        self.cost_function = cost_function
+        if(cost_function == "cross" and output_function != "softmax"):
+            print("Error en las funciones de entrada")
+
+    def initialize_small(self):
+        self.bias = [np.random.randn(i, 1) / i for i in self.sizes[1:]]
+        self.weights = [np.random.randn(j, i) / (j + i)
+                        for i, j in zip(self.sizes[:-1], self.sizes[1:])]
+
+    def initialize_small_positive(self):
+        self.bias = [abs(np.random.randn(i, 1)) / i for i in self.sizes[1:]]
+        self.weights = [np.random.randn(j, i) / (j + i)
+                        for i, j in zip(self.sizes[:-1], self.sizes[1:])]
+
+    def initialize_large_positive(self):
+        self.bias = [abs(np.random.randn(i, 1)) for i in self.sizes[1:]]
         self.weights = [np.random.randn(j, i)
-                        for i, j in zip(sizes[:-1], sizes[1:])]
-        self.hidden_function = hiddenF
-        self.output_function = outputF
+                        for i, j in zip(self.sizes[:-1], self.sizes[1:])]
 
     def feedforward(self, inp):
         for w, b in zip(self.weights[:-1], self.bias[:-1]):
@@ -109,38 +142,36 @@ class Red(object):
     def backprop(self, inp, out):
         err_w = [np.zeros(w.shape) for w in self.weights]
         err_b = [np.zeros(b.shape) for b in self.bias]
-        outs = []  # Value without sigmoid
-        activation = inp
-        activs = [inp]  # Value with sigmoid
+        outputs = []  # Value without activation function
+        act = inp
+        activations = [inp]  # Value with activation function
         # Fordward
         for w, b in zip(self.weights[:-1], self.bias[-1]):
-            activation = np.dot(w, activation) + b
-            outs.append(activation)
-            activation = self.function_dictionary[self.hidden_function](
-                activation)
-            activs.append(activation)
+            act = np.dot(w, act) + b
+            outputs.append(act)
+            act = self.function_dictionary[self.hidden_function](
+                act)
+            activations.append(act)
 
-        activation = np.dot(self.weights[-1], activation) + \
+        act = np.dot(self.weights[-1], act) + \
             self.bias[-1]
-        outs.append(activation)
-        activation = self.function_dictionary[self.output_function](
-            activation)
-        activs.append(activation)
+        outputs.append(act)
+        act = self.function_dictionary[self.output_function](
+            act)
+        activations.append(act)
+
         # Backward
         # Delta es el error por nodo
-        # TODO Problema con derivadas, unas me dan vectores y otras jacobianos,
-        # Uso solo estas ultimas?
-        delta = cost_derivative(activs[-1], out) * \
-            self.function_derivatives_dictionary[self.output_function](
-                outs[-1])
+        delta = self.cost_derivatives_dictionary[self.cost_function](
+            outputs[-1], activations[-1], out, self.function_derivatives_dictionary[self.output_function])
         err_b[-1] = delta
         # Vector columna por vector fila, crea matriz con errores
-        err_w[-1] = np.dot(delta, activs[-2].transpose())
+        err_w[-1] = np.dot(delta, activations[-2].transpose())
         for l in range(2, self.layers):
             delta = np.dot(self.weights[-l + 1].transpose(),
-                           delta) * self.function_derivatives_dictionary[self.hidden_function](outs[-l])
+                           delta) * self.function_derivatives_dictionary[self.hidden_function](outputs[-l])
             err_b[-l] = delta
-            err_w[-l] = np.dot(delta, activs[-l - 1].transpose())
+            err_w[-l] = np.dot(delta, activations[-l - 1].transpose())
 
         return (err_w, err_b)
 
@@ -163,7 +194,9 @@ parser.add_argument("eta", type=float, help="Valor aprendizaje")
 parser.add_argument("-hf", "--hidden", action="store", dest="hidden_function",
                     help="funcion oculta activacion", default="rectified")
 parser.add_argument("-of", "--output", action="store", dest="output_function",
-                    help="funcion de salida", default="rectified")
+                    help="funcion de salida", default="softmax")
+parser.add_argument("-c", "--cost", action="store", dest="cost_function",
+                    help="funcion de coste", default="cross")
 parser.add_argument("-t", "--test", action="store_true",
                     help="Calcular o no aciertos por ciclo")
 
@@ -198,7 +231,12 @@ size = [784, 30, 10]
 ##############################################################################
 
 
-red = Red(size, args.output_function, args.hidden_function)
+red = Red(size, args.output_function, args.hidden_function, args.cost_function)
+red.initialize_large_positive()
+print("Acertastes {}, de {} ".format(
+    red.evaluate(validation_data), len(validation_data)))
+print("result {} de {}".format(red.feedforward(
+    validation_data[1][0]), validation_data[1][1]))
 # red.printf()
 try:
     red.train(training_data, args.batch, args.epoch,
@@ -211,3 +249,11 @@ except KeyboardInterrupt:
     print("result {} de {}".format(red.feedforward(
         validation_data[1][0]), validation_data[1][1]))
     red.printf()
+
+print("Acertastes {}, de {} ".format(
+    red.evaluate(validation_data), len(validation_data)))
+# print data[15]
+
+print("result {} de {}".format(red.feedforward(
+    validation_data[1][0]), validation_data[1][1]))
+red.printf()
