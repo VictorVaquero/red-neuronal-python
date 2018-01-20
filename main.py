@@ -232,7 +232,7 @@ size = [784, 30, 10]
 
 
 red = Red(size, args.output_function, args.hidden_function, args.cost_function)
-red.initialize_large_positive()
+red.initialize_small_positive()
 print("Acertastes {}, de {} ".format(
     red.evaluate(validation_data), len(validation_data)))
 print("result {} de {}".format(red.feedforward(
@@ -257,3 +257,7 @@ print("Acertastes {}, de {} ".format(
 print("result {} de {}".format(red.feedforward(
     validation_data[1][0]), validation_data[1][1]))
 red.printf()
+
+
+# Sigmoid : valores de entrenamiento mas grandes
+# Relus : Pesos y tita mas pequeñas ( sino se van de madre)
