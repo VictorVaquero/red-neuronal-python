@@ -29,7 +29,6 @@ def softmax(v):
 def softmax_derivative(z):
     x = z.shape[0]
     r = (np.identity(x) - np.tile(z, (1, x)))
-    print(r, "    ", z)
     aux = np.sum(np.multiply(r, z.reshape((1, x))), 0)
     return aux.reshape((x, 1))
 
@@ -42,14 +41,27 @@ def rectified_linear_derivative(z):
     return np.vstack([1 if x >= 0 else 0 for x in z])
 
 
-def cost_derivative_quadratic(inp, out, real_out, func):
-    return (out - real_out) * func(inp)
+def cost_derivative_quadratic(inp, out, label, func):
+    return (out - label) * func(inp)
 
 
-def cost_derivative_cross(inp, out, real_out, func):
-    """ Solo si la funcion de salida es la softmax
+def cost_derivative_cross(inp, out, label, func):
+    """ Solo si la funcion de salida es la softmax o la
+        sigmoid (cross validation o minus log likehood)
     """
-    return (out - real_out)
+    return out - label
+
+
+def l2_regularization(w):
+    return w
+
+
+def l1_regularization(w):
+    return w > 0
+
+
+def no_regularization(w):
+    return 0
 
 
 def equal(x, y):
@@ -75,14 +87,21 @@ class Red(object):
         "cross": cost_derivative_cross
     }
 
-    def __init__(self, sizes, output_function, hidden_function, cost_function):
+    regularization_dictionary = {
+        "L2": l2_regularization,
+        "L1": l1_regularization,
+        "None": no_regularization
+    }
+
+    def __init__(self, sizes, output_function, hidden_function, cost_function, regularization):
         self.sizes = sizes
         self.layers = len(sizes)
 
         self.hidden_function = hidden_function
         self.output_function = output_function
         self.cost_function = cost_function
-        if(cost_function == "cross" and output_function != "softmax"):
+        self.regularization = regularization
+        if(cost_function == "cross" and output_function != "softmax" and output_function != "sigmoid"):
             print("Error en las funciones de entrada")
 
     def initialize_small(self):
@@ -114,7 +133,7 @@ class Red(object):
     # Datos, size de cada entrenamiento por ciclo, numero ciclos,
     #  eta -> valor de actualizacion
 
-    def train(self, data, mini_batch_size, epoch, eta, test=False, test_data=None):
+    def train(self, data, mini_batch_size, epoch, eta, nu, test=False, test_data=None):
         n = len(data)
         total = "Null"
         for x in range(epoch):
@@ -122,20 +141,21 @@ class Red(object):
             mini_data = [data[k:k + mini_batch_size]
                          for k in range(0, n, mini_batch_size)]
             for mini_batch in mini_data:
-                self.update(mini_batch, eta)
+                self.update(mini_batch, eta, nu)
             if test == True:
                 total = self.evaluate(test_data)
             print(
                 "Numero finalizado {0}, numero total: {1} de {2}".format(x, total, len(test_data)))
 
-    def update(self, data, eta):
+    def update(self, data, eta, nu):
         err_w = [np.zeros(w.shape) for w in self.weights]
         err_b = [np.zeros(b.shape) for b in self.bias]
         for x, y in data:
             delta_ew, delta_eb = self.backprop(x, y)
             err_w = [de + e for de, e in zip(delta_ew, err_w)]
             err_b = [de + e for de, e in zip(delta_eb, err_b)]
-        self.weights = [w - e * eta / len(data)
+        self.weights = [w - e * eta / len(data) - nu *
+                        self.regularization_dictionary[self.regularization](w)
                         for w, e in zip(self.weights, err_w)]
         self.bias = [b - e * eta / len(data) for b, e in zip(self.bias, err_b)]
 
@@ -163,7 +183,8 @@ class Red(object):
         # Backward
         # Delta es el error por nodo
         delta = self.cost_derivatives_dictionary[self.cost_function](
-            outputs[-1], activations[-1], out, self.function_derivatives_dictionary[self.output_function])
+            outputs[-1], activations[-1], out,
+            self.function_derivatives_dictionary[self.output_function])
         err_b[-1] = delta
         # Vector columna por vector fila, crea matriz con errores
         err_w[-1] = np.dot(delta, activations[-2].transpose())
@@ -191,14 +212,18 @@ parser = argparse.ArgumentParser(description="Simple red neuronal")
 parser.add_argument("batch", type=int, help="Tamano de los mini lotes ")
 parser.add_argument("epoch", type=int, help="Numero de ciclos")
 parser.add_argument("eta", type=float, help="Valor aprendizaje")
+parser.add_argument("nu", type=float, help="Valor regularizacion")
 parser.add_argument("-hf", "--hidden", action="store", dest="hidden_function",
                     help="funcion oculta activacion", default="rectified")
 parser.add_argument("-of", "--output", action="store", dest="output_function",
                     help="funcion de salida", default="softmax")
 parser.add_argument("-c", "--cost", action="store", dest="cost_function",
                     help="funcion de coste", default="cross")
+parser.add_argument("-r", "--regularizacion", action="store", dest="regularization",
+                    help="Tipo de regularizacion", default="L2")
 parser.add_argument("-t", "--test", action="store_true",
                     help="Calcular o no aciertos por ciclo")
+
 
 args = parser.parse_args()
 
@@ -208,7 +233,7 @@ args = parser.parse_args()
 training_data, validation_data, test_data = mnist_loader.load_data_wrapper()
 training_data, validation_data, test_data = list(
     training_data), list(validation_data), list(test_data)
-size = [784, 30, 10]
+size = [784, 100, 10]
 
 
 #---------------------------------------------------------------- XOR
@@ -231,24 +256,19 @@ size = [784, 30, 10]
 ##############################################################################
 
 
-red = Red(size, args.output_function, args.hidden_function, args.cost_function)
+red = Red(size, args.output_function, args.hidden_function,
+          args.cost_function, args.regularization)
 red.initialize_small_positive()
-print("Acertastes {}, de {} ".format(
-    red.evaluate(validation_data), len(validation_data)))
-print("result {} de {}".format(red.feedforward(
-    validation_data[1][0]), validation_data[1][1]))
-# red.printf()
+# print("Acertastes {}, de {} ".format(
+#     red.evaluate(validation_data), len(validation_data)))
+# print("result {} de {}".format(red.feedforward(
+#     validation_data[1][0]), validation_data[1][1]))
+# # red.printf()
 try:
     red.train(training_data, args.batch, args.epoch,
-              args.eta, test=args.test, test_data=test_data)
+              args.eta, args.nu, test=args.test, test_data=test_data)
 except KeyboardInterrupt:
-    print("Acertastes {}, de {} ".format(
-        red.evaluate(validation_data), len(validation_data)))
-    # print data[15]
-
-    print("result {} de {}".format(red.feedforward(
-        validation_data[1][0]), validation_data[1][1]))
-    red.printf()
+    print()
 
 print("Acertastes {}, de {} ".format(
     red.evaluate(validation_data), len(validation_data)))
